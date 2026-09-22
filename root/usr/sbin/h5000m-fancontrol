@@ -6,6 +6,10 @@ POLICY_FILE="/var/run/h5000m-fancontrol.policy"
 LOCK_DIR="/var/lock/h5000m-fancontrol.lock"
 MT5700M_TEMP_CACHE="${H5000M_FAN_MT5700M_TEMP_CACHE:-/var/run/mt5700m/temperature}"
 MT5700M_TEMP_MAX_AGE="${H5000M_FAN_MT5700M_TEMP_MAX_AGE:-60}"
+# 5G 模块温度的第二条通道（见 find_module_temp）：经 ubus 问 MT5700 Console 的
+# Rust 后端（at-webserver-rust）要 AT^CHIPTEMP?。只在这条链路整体不可用时才
+# 退回"只读缓存"，因此默认值必须保守 —— AT 查询是有代价的，不能每轮都打。
+MODULE_TEMP_UBUS_TIMEOUT="${H5000M_FAN_MODULE_TEMP_UBUS_TIMEOUT:-8}"
 
 is_uint() {
 	case "$1" in
@@ -43,6 +47,17 @@ load_config() {
 	case "$PROFILE" in silent|balanced|performance|custom) ;; *) PROFILE="balanced" ;; esac
 	TEMP_SOURCE="$(cfg_string temp_source max)"
 	case "$TEMP_SOURCE" in max|cpu) ;; *) TEMP_SOURCE="max" ;; esac
+	# 5G 模块温度的取法：
+	#   auto  = 新鲜缓存 → ubus 问 Rust 后端 → 兜底扫 /tmp 缓存
+	#   cache = 只用缓存文件（上游原有行为，完全不碰 AT 通道）
+	#   ubus  = 只走 ubus（仍会写缓存，但不读缓存）
+	#   off   = 不取模块温度（模块不参与 max 取热）
+	# 环境变量优先于 UCI，便于离线测试注入。
+	MODULE_TEMP_SOURCE="$(cfg_string module_temp_source "${H5000M_FAN_MODULE_TEMP_SOURCE:-auto}")"
+	case "$MODULE_TEMP_SOURCE" in auto|cache|ubus|off) ;; *) MODULE_TEMP_SOURCE="auto" ;; esac
+	# 两次 AT^CHIPTEMP? 之间的最小间隔（默认 30s，与 MT5700 Console 前端慢档一致）。
+	# 风扇主循环是 5s 一轮，没有这个节流就会每 5 秒占用一次 AT 通道。
+	MODULE_TEMP_INTERVAL="$(cfg_uint module_temp_interval "${H5000M_FAN_MODULE_TEMP_INTERVAL:-30}" 5 3600)"
 	MANUAL_PWM="$(cfg_uint manual_pwm 160 0 255)"
 	INTERVAL="$(cfg_uint interval 5 2 60)"
 	HYSTERESIS="$(cfg_uint hysteresis 2 0 10)"
@@ -154,32 +169,159 @@ read_temp_c() {
 	echo "$value"
 }
 
+# 12 路传感器名，与 MT5700 Console 前端 Parse.parseCHIPTEMP 的返回**严格一一对应**
+# （顺序见鼎桥手册 17.1）。名字对不上，日志里就分不清到底是哪一路在发热。
+module_temp_sensor_name() {
+	case "$1" in
+		0) printf '%s\n' sub3GPA ;;
+		1) printf '%s\n' sub6GPA ;;
+		2) printf '%s\n' mimoPa ;;
+		3) printf '%s\n' tcxo ;;
+		4) printf '%s\n' peri1 ;;
+		5) printf '%s\n' peri2 ;;
+		6) printf '%s\n' ap1 ;;
+		7) printf '%s\n' ap2 ;;
+		8) printf '%s\n' modem1 ;;
+		9) printf '%s\n' modem2 ;;
+		10) printf '%s\n' bbp1 ;;
+		11) printf '%s\n' bbp2 ;;
+		*) printf '%s\n' "ch$1" ;;
+	esac
+}
+
+# 经 ubus 问 MT5700 Console 的 Rust 后端（at-webserver-rust）要一次 AT^CHIPTEMP?。
+#
+# ★ 为什么不直接开串口：/dev/ttyUSB1 的唯一持有者是那个 Rust 服务，脚本再去开会把
+#   AT 通道抢坏。走 ubus → rpcd ucode → 后端，是**同一条已被认可的链路**。
+#
+# ★ 成功只看 ubus 回包里的 success（即使带了 data，success 也可能是 false）。
+# ★ ^CHIPTEMP? 是只读查询，不在高危命令之列；单位是 0.1℃。
+# ★ 65535 是模组报告的无效读数，必须跳过，否则会算出 6553℃ 并把风扇拉满。
+#
+# 输出 "<摄氏度整数> <最热那一路的下标>"，失败返回 1。
+module_temp_via_ubus() {
+	local raw nums
+	command -v ubus >/dev/null 2>&1 || return 1
+	# timeout 兜底：AT 通道被别的操作占住时 ubus 可能挂很久，不能拖住风扇主循环。
+	if command -v timeout >/dev/null 2>&1; then
+		raw="$(timeout "$MODULE_TEMP_UBUS_TIMEOUT" ubus call mt5700 at '{"cmd":"AT^CHIPTEMP?"}' 2>/dev/null)"
+	else
+		raw="$(ubus call mt5700 at '{"cmd":"AT^CHIPTEMP?"}' 2>/dev/null)"
+	fi
+	[ -n "$raw" ] || return 1
+	printf '%s' "$raw" | grep -q '"success"[[:space:]]*:[[:space:]]*true' || return 1
+	# busybox 的 awk **没有 match()**，所以只能用 sed 剥出数字串。
+	# ★ 别加 `tr -d '\r'`：POSIX shell 里单引号的 \r 是两个字面字符，tr 会把所有
+	#   反斜杠和字母 r 一起删掉（对数字串无碍，但语义是错的）。而 JSON 里的 \r
+	#   本来就是字面文本，不在捕获范围内，无需处理。
+	nums="$(printf '%s' "$raw" \
+		| sed -n 's/.*CHIPTEMP:[^0-9-]*\([0-9-][0-9,]*\).*/\1/p' | head -n 1)"
+	[ -n "$nums" ] || return 1
+	printf '%s\n' "$nums" | awk -F, '
+		BEGIN { best = ""; idx = -1 }
+		{
+			for (i = 1; i <= NF; i++) {
+				v = $i + 0
+				if (v >= 65535 || v <= -1000) continue
+				c = v / 10
+				if (best == "" || c > best) { best = c; idx = i - 1 }
+			}
+		}
+		END {
+			if (idx < 0) exit 1
+			printf "%d %d\n", (best < 0 ? best - 0.5 : best + 0.5), idx
+		}'
+}
+
+# 把读到的温度回写成缓存文件（格式与上游完全一致，别的组件也能直接读）。
+module_temp_write_cache() {
+	local value="$1" sensor="$2" dir
+	dir="${MT5700M_TEMP_CACHE%/*}"
+	[ "$dir" != "$MT5700M_TEMP_CACHE" ] || return 0
+	mkdir -p "$dir" 2>/dev/null || return 0
+	# 先写临时文件再改名：风扇每 5 秒循环一次，直接覆盖会让别处读到写了一半的内容。
+	printf 'temperature=%s\ntemperature_sensor=%s\nupdated=%s\n' \
+		"$value" "$sensor" "$(date +%s)" > "$dir/.temperature.tmp" 2>/dev/null || return 0
+	mv -f "$dir/.temperature.tmp" "$MT5700M_TEMP_CACHE" 2>/dev/null || return 0
+	return 0
+}
+
+# 读缓存文件。结果放进 MODULE_TEMP_VALUE / MODULE_SENSOR ——
+# ★ 不能用 value=$(module_temp_cache_read)：命令替换在子 shell 里跑，
+#   这边赋的全局变量回不来，因此必须直接写全局变量。
+module_temp_cache_read() {
+	MODULE_TEMP_VALUE=""
+	[ -r "$MT5700M_TEMP_CACHE" ] || return 1
+	MODULE_SENSOR="$(sed -n 's/^temperature_sensor=//p' "$MT5700M_TEMP_CACHE" 2>/dev/null | head -n 1)"
+	MODULE_TEMP_VALUE="$(awk -F= '$1 == "temperature" && $2 ~ /^-?[0-9]+([.][0-9]+)?$/ {
+		v = $2 + 0
+		if (v >= -40 && v <= 150) printf "%d\n", (v < 0 ? v - 0.5 : v + 0.5)
+		exit
+	}' "$MT5700M_TEMP_CACHE" 2>/dev/null)"
+	case "$MODULE_TEMP_VALUE" in ''|*[!0-9-]*) MODULE_TEMP_VALUE=""; return 1 ;; esac
+	return 0
+}
+
+module_temp_cache_age() {
+	local updated now
+	updated="$(sed -n 's/^updated=//p' "$MT5700M_TEMP_CACHE" 2>/dev/null | head -n 1)"
+	now="$(date +%s)"
+	is_uint "$updated" && is_uint "$now" || return 1
+	printf '%s\n' $((now - updated))
+}
+
 find_module_temp() {
-	local file value updated now age
-	if [ -r "$MT5700M_TEMP_CACHE" ]; then
-		updated="$(sed -n 's/^updated=//p' "$MT5700M_TEMP_CACHE" 2>/dev/null | head -n 1)"
-		now="$(date +%s)"
-		if is_uint "$updated" && is_uint "$now" && is_uint "$MT5700M_TEMP_MAX_AGE"; then
-			age=$((now - updated))
-			if [ "$age" -ge 0 ] && [ "$age" -le "$MT5700M_TEMP_MAX_AGE" ]; then
-				value="$(awk -F= '$1 == "temperature" && $2 ~ /^-?[0-9]+([.][0-9]+)?$/ {
-					v = $2 + 0
-					if (v >= -40 && v <= 150) printf "%d\n", (v < 0 ? v - 0.5 : v + 0.5)
-					exit
-				}' "$MT5700M_TEMP_CACHE" 2>/dev/null)"
-				case "$value" in
-					''|*[!0-9-]*) ;;
-					*) echo "$value"; return 0 ;;
-				esac
+	local value age out idx file cached="" cached_sensor=""
+	MODULE_SENSOR=""
+	MODULE_TEMP_VALUE=""
+
+	[ "$MODULE_TEMP_SOURCE" = "off" ] && return 1
+
+	# ① 缓存文件（上游既有路径，零成本）：先把值取出来，新鲜度分两档用。
+	if [ "$MODULE_TEMP_SOURCE" != "ubus" ]; then
+		if module_temp_cache_read; then
+			age="$(module_temp_cache_age || true)"
+			if is_uint "$age" && [ "$age" -ge 0 ]; then
+				if [ "$age" -le "$MODULE_TEMP_INTERVAL" ]; then
+					return 0
+				elif is_uint "$MT5700M_TEMP_MAX_AGE" && [ "$age" -le "$MT5700M_TEMP_MAX_AGE" ]; then
+					# 偏旧：先留着，② 问不到 AT 时还能顶上。
+					cached="$MODULE_TEMP_VALUE"
+					cached_sensor="$MODULE_SENSOR"
+					MODULE_TEMP_VALUE=""
+				fi
 			fi
 		fi
 	fi
+
+	# ② ubus → MT5700 Console 的 Rust 后端。查到就回写缓存，下次循环直接读。
+	if [ "$MODULE_TEMP_SOURCE" != "cache" ]; then
+		out="$(module_temp_via_ubus 2>/dev/null || true)"
+		if [ -n "$out" ]; then
+			value="${out% *}"
+			idx="${out##* }"
+			MODULE_SENSOR="$(module_temp_sensor_name "$idx")"
+			module_temp_write_cache "$value" "$MODULE_SENSOR"
+			MODULE_TEMP_VALUE="$value"
+			return 0
+		fi
+	fi
+
+	# ③ ubus 不可用（服务没起来 / 模组没响应）时退回旧缓存，别让风扇凭空加速。
+	if [ -n "$cached" ]; then
+		MODULE_SENSOR="$cached_sensor"
+		MODULE_TEMP_VALUE="$cached"
+		return 0
+	fi
+
+	# ④ 最后兜底：扫别的模组管理软件留下的 /tmp 缓存。
 	for file in /tmp/cache_base_info_* /tmp/cache_*info*; do
 		[ -f "$file" ] || continue
 		value="$(sed -n 's/.*"key"[[:space:]]*:[[:space:]]*"temperature"[^}]*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" 2>/dev/null | head -n 1 | grep -Eo -- '-?[0-9]+' | head -n 1)"
 		case "$value" in ''|*[!0-9-]*) continue ;; esac
 		[ "$value" -ge -40 ] 2>/dev/null && [ "$value" -le 150 ] 2>/dev/null || continue
-		echo "$value"
+		MODULE_TEMP_VALUE="$value"
+		return 0
 		return 0
 	done
 	return 1
@@ -198,7 +340,11 @@ read_sensors() {
 	local zone type value hwmon name
 	CPU_TEMP=""; CPU_LABEL=""; PHY_TEMP=""; PHY_LABEL=""
 	WIFI1_TEMP=""; WIFI1_LABEL=""; WIFI2_TEMP=""; WIFI2_LABEL=""
-	MODULE_TEMP="$(find_module_temp 2>/dev/null || true)"
+	MODULE_SENSOR=""; MODULE_TEMP_VALUE=""
+	# ★ 不能写成 MODULE_TEMP="$(find_module_temp)"：命令替换在子 shell 里跑，
+	#   函数里赋的 MODULE_SENSOR / MODULE_TEMP_VALUE 回不到这里。
+	find_module_temp 2>/dev/null || MODULE_TEMP_VALUE=""
+	MODULE_TEMP="$MODULE_TEMP_VALUE"
 	CONTROL_TEMP=""; CONTROL_SENSOR=""
 
 	for zone in /sys/class/thermal/thermal_zone*; do
@@ -560,6 +706,9 @@ print_status() {
 	echo "wifi1_temp=$WIFI1_TEMP"; echo "wifi1_label=$WIFI1_LABEL"
 	echo "wifi2_temp=$WIFI2_TEMP"; echo "wifi2_label=$WIFI2_LABEL"
 	echo "module_temp=$MODULE_TEMP"; echo "module_label=5G modem"
+	# 具体是哪一路最热（sub3GPA/sub6GPA/.../bbp2）。module_label 保持 "5G modem"
+	# 不变 —— LuCI 靠它高亮传感器卡片，改名会让高亮失效。
+	echo "module_sensor=$MODULE_SENSOR"
 	echo "control_temp=$CONTROL_TEMP"; echo "control_sensor=$CONTROL_SENSOR"
 	echo "thermal_floor=$THERMAL_FLOOR"
 	echo "thermal_state=$THERMAL_STATE"

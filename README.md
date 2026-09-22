@@ -15,7 +15,7 @@
 
 ## 功能
 
-- 汇总 CPU、以太网 PHY、Wi-Fi 射频及 MT5700M 管理器提供的新鲜缓存温度
+- 汇总 CPU、以太网 PHY、Wi-Fi 射频及 5G 模块温度（模块温度经 ubus 向 MT5700 Console 查询）
 - 静音、均衡、性能和自定义四种自动曲线
 - 自动、手动和仅内核保护三种运行模式
 - 温度滞回及降速延迟，减少风扇频繁波动
@@ -77,6 +77,39 @@ git apply package/luci-app-h5000m-fancontrol/openwrt-patches/h5000m-userspace-fa
 /usr/sbin/h5000m-fancontrol apply
 /etc/init.d/h5000m-fancontrol restart
 ```
+
+## 5G 模块温度
+
+模块温度不是从文件里"碰巧读到"的，而是**经 ubus 向 MT5700 Console 的 Rust 后端**
+（`at-webserver-rust`）发一次只读查询 `AT^CHIPTEMP?`，取 12 路传感器里的最大值：
+
+```sh
+ubus call mt5700 at '{"cmd":"AT^CHIPTEMP?"}'
+# -> "data": "^CHIPTEMP: 401,400,396,402,370,370,400,400,400,410,380,380\r\nOK"
+#    单位是 0.1℃，第 10 路 modem2 = 410 最高 → 41℃
+```
+
+取法依次是：新鲜缓存 → ubus 查询 → 未过硬上限的旧缓存 → `/tmp` 兜底扫描。
+查询成功后会把结果按 `temperature` / `temperature_sensor` / `updated` 三行写回
+`/var/run/mt5700m/temperature`，格式与此前版本一致。
+
+为什么这么绕，而不是每轮都查：
+
+- 风扇主循环是 **5 秒**一轮，每轮都打 AT 会持续占用 AT 通道。
+  `module_temp_interval`（默认 **30 秒**）决定真正打 AT 的频率，其余轮次读缓存。
+- `/dev/ttyUSB1` 的唯一持有者是那个 Rust 服务，脚本自己开串口会把 AT 通道抢坏，
+  所以必须走 ubus → rpcd ucode → 后端的同一条链路。
+- 模组报告的无效读数 **65535** 会被跳过。
+
+相关 UCI 选项（`/etc/config/h5000m_fancontrol`）：
+
+| 选项 | 默认 | 说明 |
+|---|---|---|
+| `module_temp_source` | `auto` | `auto` 三级回退；`cache` 只用缓存（完全不碰 AT）；`ubus` 只走查询；`off` 不取模块温度 |
+| `module_temp_interval` | `30` | 两次 `AT^CHIPTEMP?` 之间的最小间隔（秒），范围 5–3600 |
+
+没装 MT5700 Console（或它的服务没起来）时，ubus 查询失败，控制器退回旧缓存 /
+兜底扫描；都拿不到就是"没读到"，模块温度不参与取热，**不会**因此触发故障保护。
 
 ## 安全说明
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.2.0
+
+- **5G 模块温度改为经 ubus 向 MT5700 Console 的 Rust 后端查询**（`AT^CHIPTEMP?`）。
+  原先只读 `/var/run/mt5700m/temperature` 这一条路 —— 该文件由别的模组管理软件
+  产生，在这台机器上**根本不存在**，于是模块温度恒为空、从不参与取热。
+- 取法改为三级：新鲜缓存 → ubus 查询 → 旧缓存兜底，并保留原先的 `/tmp` 兜底扫描。
+- 查询结果按上游既有格式回写缓存文件，`temperature_sensor` 记下最热的那一路，
+  其他组件（以及本插件的下一次循环）可以直接读。
+- 新增 `module_temp_interval`（默认 30 秒）：风扇主循环是 5 秒一轮，没有这个节流
+  就会每 5 秒占用一次 AT 通道。
+- 新增 `module_temp_source`（`auto`/`cache`/`ubus`/`off`）：可强制只用缓存或彻底关闭。
+- 无效读数 65535 会被跳过（否则会算出 6553℃ 并把风扇拉满）。
+- 状态新增 `module_sensor` 字段，界面提示改为显示最热通道；`module_label` 仍是
+  `5G modem`（界面靠它高亮传感器卡片，改名会让高亮失效）。
+
 ## 2.1.0
 
 - 风扇控制器不再把完整 CPU thermal zone 切换到 `user_space`。

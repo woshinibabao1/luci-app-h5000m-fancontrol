@@ -4,6 +4,11 @@ config settings 'settings'
 	option mode 'auto'
 	option curve 'balanced'
 	option temp_source 'max'
+	# 5G 模块温度的取法：auto（缓存 → ubus 问 MT5700 Console → 兜底）/ cache / ubus / off
+	option module_temp_source 'auto'
+	# 两次 AT^CHIPTEMP? 之间的最小间隔（秒）。风扇主循环是 5s 一轮，
+	# 这个值就是实际打 AT 的频率，别调太小。
+	option module_temp_interval '30'
 	option manual_pwm '160'
 	option interval '5'
 	option hysteresis '2'

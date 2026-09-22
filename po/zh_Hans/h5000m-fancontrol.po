@@ -220,6 +220,9 @@ msgstr "运行正常"
 msgid "Fan output"
 msgstr "风扇输出"
 
+# 注：原 "From the local modem cache"（来自本地模块缓存）已不再使用 ——
+# 模块温度现在经 ubus 向 MT5700 Console 的 Rust 后端查询，页面提示改为
+# "Hottest channel: %s"（最热通道）。此条目保留仅为历史兼容。
 msgid "From the local modem cache"
 msgstr "来自本地模块缓存"
 
@@ -228,6 +231,9 @@ msgstr "H5000M 散热管理"
 
 msgid "Hottest available sensor"
 msgstr "可用传感器中的最高温度"
+
+msgid "Hottest channel: %s"
+msgstr "最热通道：%s"
 
 msgid "Kernel protection only"
 msgstr "仅内核保护"
@@ -298,14 +304,17 @@ msgstr "温度滞回"
 msgid "Temperatures must increase from 0–150 °C and percentages must be 0–100."
 msgstr "温度必须在 0–150 °C 范围内递增，百分比必须在 0–100 范围内。"
 
-msgid "The hottest-sensor option considers CPU, Ethernet PHY, Wi-Fi and the available 5G modem cache."
-msgstr "最高温度模式会综合 CPU、以太网 PHY、Wi-Fi 和可用的 5G 模块缓存温度。"
+msgid "The hottest-sensor option considers CPU, Ethernet PHY, Wi-Fi and the 5G modem (queried from MT5700 Console)."
+msgstr "最高温度模式会综合 CPU、以太网 PHY、Wi-Fi 和 5G 模块温度（模块温度经 ubus 向 MT5700 Console 查询）。"
 
 msgid "The kernel safety floor may raise the effective output above this value."
 msgstr "内核安全下限可能使实际输出高于此设置值。"
 
 msgid "Unavailable"
 msgstr "不可用"
+
+msgid "Via MT5700 Console"
+msgstr "经由 MT5700 Console"
 
 msgid "Use comma-separated temperature:percent points, for example 35:0,45:50,70:80,90:100."
 msgstr "请使用逗号分隔“温度:百分比”控制点，例如 35:0,45:50,70:80,90:100。"

@@ -237,7 +237,12 @@ return view.extend({
 		this.setText('h5fan-phy-value', this.formatTemp(data.phy_temp)); this.setText('h5fan-phy-hint', data.phy_label || '');
 		this.setText('h5fan-wifi-value', data.wifi1_temp || data.wifi2_temp ? [data.wifi1_temp, data.wifi2_temp].filter(Boolean).join(' / ') + ' °C' : _('Unavailable'));
 		this.setText('h5fan-wifi-hint', [data.wifi1_label, data.wifi2_label].filter(Boolean).join(' · '));
-		this.setText('h5fan-modem-value', this.formatTemp(data.module_temp)); this.setText('h5fan-modem-hint', _('From the local modem cache'));
+		/* 提示不再是写死的"来自本地缓存"：温度现在是经 ubus 向 MT5700 Console 的
+		   Rust 后端要 AT^CHIPTEMP? 得来的，最热的那一路要显示出来才有排查价值。 */
+		this.setText('h5fan-modem-value', this.formatTemp(data.module_temp));
+		this.setText('h5fan-modem-hint', data.module_temp
+			? (data.module_sensor ? _('Hottest channel: %s').format(data.module_sensor) : _('Via MT5700 Console'))
+			: _('Unavailable'));
 		this.setText('h5fan-profile', this.modeName(data.mode) + (data.mode === 'auto' ? ' · ' + this.profileName(data.curve) : ''));
 		this.setText('h5fan-requested', isNaN(requested) ? '-' : Math.round(requested * 100 / 255) + '%');
 		this.setText('h5fan-applied', isNaN(applied) ? (isNaN(pwm) ? '-' : Math.round(pwm * 100 / 255) + '%') : Math.round(applied * 100 / 255) + '%');
@@ -308,7 +313,7 @@ return view.extend({
 
 		o = s.taboption('policy', form.ListValue, 'temp_source', _('Control temperature'));
 		o.value('max', _('Hottest available sensor')); o.value('cpu', _('CPU only')); o.default = 'max'; o.rmempty = false; o.depends({ enabled: '1', mode: 'auto' });
-		o.description = _('The hottest-sensor option considers CPU, Ethernet PHY, Wi-Fi and the available 5G modem cache.');
+		o.description = _('The hottest-sensor option considers CPU, Ethernet PHY, Wi-Fi and the 5G modem (queried from MT5700 Console).');
 
 		o = s.taboption('policy', form.Value, 'manual_pwm', _('Manual PWM output'));
 		o.datatype = 'range(0,255)'; o.default = '160'; o.rmempty = false; o.depends({ enabled: '1', mode: 'manual' });
