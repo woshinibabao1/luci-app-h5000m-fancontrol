@@ -4,7 +4,13 @@ TAG="h5000m-fancontrol"
 STATE_FILE="/var/run/h5000m-fancontrol.state"
 POLICY_FILE="/var/run/h5000m-fancontrol.policy"
 LOCK_DIR="/var/lock/h5000m-fancontrol.lock"
-MT5700M_TEMP_CACHE="${H5000M_FAN_MT5700M_TEMP_CACHE:-/var/run/mt5700m/temperature}"
+# 模块温度缓存的路径。
+# ★ 必须落在本插件自己的命名空间里：这个文件既是写目标、也是 auto 模式下的读来源，
+#   若沿用旧路径 /var/run/mt5700m/（那是被本机型构建明确排除的 luci-app-mt5700m
+#   的命名空间），就可能读到**别的模组管理软件**写进去的数值 —— 那就不再是
+#   「经 MT5700 Console 取到的温度」了。5G 模块数据只有这一条来源。
+# 兼容：老环境变量名 H5000M_FAN_MT5700M_TEMP_CACHE 仍然承认（旧测试脚本在用）。
+MT5700M_TEMP_CACHE="${H5000M_FAN_TEMP_CACHE:-${H5000M_FAN_MT5700M_TEMP_CACHE:-/var/run/h5000m-fancontrol.temperature}}"
 MT5700M_TEMP_MAX_AGE="${H5000M_FAN_MT5700M_TEMP_MAX_AGE:-60}"
 # 5G 模块温度的第二条通道（见 find_module_temp）：经 ubus 问 MT5700 Console 的
 # Rust 后端（at-webserver-rust）要 AT^CHIPTEMP?。只在这条链路整体不可用时才
@@ -25,21 +31,51 @@ clamp() {
 	echo "$value"
 }
 
+# UCI 读取统一从这里走。
+#
+# 优先用 /lib/functions.sh 的纯 shell 解析：`uci -q get` 每读一个选项就要 fork 一次，
+# 而 load_config 要读 17 个选项、守护进程每轮还要调用两次 —— 实测这 34 次 fork
+# 占整轮外部进程的 1/4。config_load / config_get 是同一份 UCI 数据的本地解析，
+# 零外部进程。
+#
+# 真机实测（H5000M，busybox 1.38）：18 个选项两边取值逐项一致，缺项都返回空串；
+# config_load 可在同一进程内反复调用而不累积（CONFIG_SECTIONS 保持 [settings]）。
+#
+# 非 OpenWrt 环境（例如 CI 里的单元测试）没有这个文件，退回 uci 命令行 —— 那种环境下
+# 连 uci 也没有，两条路都返回空串、由调用方回落到默认值，行为与改动前一致。
+CFG_NAME="h5000m_fancontrol"
+CFG_SECTION="settings"
+if [ -r /lib/functions.sh ]; then
+	. /lib/functions.sh
+	cfg_load() { config_load "$CFG_NAME"; }
+	cfg_raw() {
+		local value
+		config_get value "$CFG_SECTION" "$1"
+		printf '%s\n' "$value"
+	}
+else
+	cfg_load() { :; }
+	cfg_raw() { uci -q get "${CFG_NAME}.${CFG_SECTION}.$1" 2>/dev/null || true; }
+fi
+
 cfg_uint() {
 	local option="$1" fallback="$2" min="$3" max="$4" value
-	value="$(uci -q get "h5000m_fancontrol.settings.${option}" || true)"
+	value="$(cfg_raw "$option")"
 	is_uint "$value" || value="$fallback"
 	clamp "$value" "$min" "$max"
 }
 
 cfg_string() {
 	local option="$1" fallback="$2" value
-	value="$(uci -q get "h5000m_fancontrol.settings.${option}" || true)"
+	value="$(cfg_raw "$option")"
 	[ -n "$value" ] || value="$fallback"
 	echo "$value"
 }
 
 load_config() {
+	# config_get 读的是上一句装载进来的 shell 变量；$( ) 子 shell 会继承它们，
+	# 因此这里只装一次，17 次读取都不再产生进程。
+	cfg_load
 	ENABLED="$(cfg_uint enabled 1 0 1)"
 	MODE="$(cfg_string mode auto)"
 	case "$MODE" in auto|manual|kernel) ;; off) MODE="kernel" ;; *) MODE="auto" ;; esac
@@ -47,9 +83,9 @@ load_config() {
 	case "$PROFILE" in silent|balanced|performance|custom) ;; *) PROFILE="balanced" ;; esac
 	TEMP_SOURCE="$(cfg_string temp_source max)"
 	case "$TEMP_SOURCE" in max|cpu) ;; *) TEMP_SOURCE="max" ;; esac
-	# 5G 模块温度的取法：
-	#   auto  = 新鲜缓存 → ubus 问 Rust 后端 → 兜底扫 /tmp 缓存
-	#   cache = 只用缓存文件（上游原有行为，完全不碰 AT 通道）
+	# 5G 模块温度的取法（只有 MT5700 Console 这一条来源）：
+	#   auto  = 新鲜缓存 → ubus 问 MT5700 Console → 未过上限的旧缓存
+	#   cache = 只用本插件缓存（完全不碰 AT 通道）
 	#   ubus  = 只走 ubus（仍会写缓存，但不读缓存）
 	#   off   = 不取模块温度（模块不参与 max 取热）
 	# 环境变量优先于 UCI，便于离线测试注入。
@@ -271,13 +307,14 @@ module_temp_cache_age() {
 }
 
 find_module_temp() {
-	local value age out idx file cached="" cached_sensor=""
+	local value age out idx cached="" cached_sensor=""
 	MODULE_SENSOR=""
 	MODULE_TEMP_VALUE=""
 
 	[ "$MODULE_TEMP_SOURCE" = "off" ] && return 1
 
-	# ① 缓存文件（上游既有路径，零成本）：先把值取出来，新鲜度分两档用。
+	# ① 本插件自己的缓存（内容只可能来自 ② 的 MT5700 Console 查询，零成本）：
+	#    先把值取出来，新鲜度分两档用。
 	if [ "$MODULE_TEMP_SOURCE" != "ubus" ]; then
 		if module_temp_cache_read; then
 			age="$(module_temp_cache_age || true)"
@@ -314,16 +351,9 @@ find_module_temp() {
 		return 0
 	fi
 
-	# ④ 最后兜底：扫别的模组管理软件留下的 /tmp 缓存。
-	for file in /tmp/cache_base_info_* /tmp/cache_*info*; do
-		[ -f "$file" ] || continue
-		value="$(sed -n 's/.*"key"[[:space:]]*:[[:space:]]*"temperature"[^}]*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" 2>/dev/null | head -n 1 | grep -Eo -- '-?[0-9]+' | head -n 1)"
-		case "$value" in ''|*[!0-9-]*) continue ;; esac
-		[ "$value" -ge -40 ] 2>/dev/null && [ "$value" -le 150 ] 2>/dev/null || continue
-		MODULE_TEMP_VALUE="$value"
-		return 0
-		return 0
-	done
+	# 没有第 ④ 级。5G 模块数据只有一条来源：经 ubus 问 MT5700 Console。
+	# （原先这里会去扫 /tmp/cache_base_info_* / /tmp/cache_*info* —— 那是
+	#  **别的模组管理软件**留下的缓存，既不是 Console 的取数链路，本机也不存在。）
 	return 1
 }
 
@@ -421,7 +451,7 @@ cooling_level_for_state() {
 }
 
 set_thermal_floor() {
-	local dev dt fan_phandle map map_phandle map_state trip_ref trip threshold hyst trip_phandle value maps_examined map_found
+	local dev dt fan_phandle map map_phandle map_state trip_ref trip threshold hyst trip_phandle value maps_examined map_found trip_index trip_dir entry
 	THERMAL_FLOOR=0
 	THERMAL_STATE=0
 	THERMAL_MAX_STATE=0
@@ -437,6 +467,18 @@ set_thermal_floor() {
 	maps_examined=0
 	map_found=0
 
+	# trip 的「phandle:目录」索引。原实现把 trip 扫描放在 cooling-map 循环内层，
+	# 于是每个属于风扇的 map 都要把全部 trip 重扫一遍 —— 真机实测 36 次设备树
+	# 读取里有 18 次是这样重复出来的（6 个 trip × 3 个 map）。这里只建一次。
+	# 设备树在一次开机内只读且不变，索引不存在过期问题。
+	trip_index=""
+	for trip in /sys/firmware/devicetree/base/thermal-zones/*/trips/*; do
+		[ -f "$trip/phandle" ] && [ -f "$trip/temperature" ] || continue
+		trip_phandle="$(read_be32 "$trip/phandle" 0 2>/dev/null || true)"
+		is_uint "$trip_phandle" || continue
+		trip_index="$trip_index $trip_phandle:$trip"
+	done
+
 	# Derive the required state from the kernel's own cooling maps. Direct PWM
 	# writes also change cur_state, so cur_state itself is not a safe floor.
 	if is_uint "$fan_phandle"; then
@@ -450,18 +492,21 @@ set_thermal_floor() {
 			map_state="$(read_be32 "$map/cooling-device" 2 2>/dev/null || true)"
 			trip_ref="$(read_be32 "$map/trip" 0 2>/dev/null || true)"
 			is_uint "$map_state" && is_uint "$trip_ref" || continue
-			for trip in /sys/firmware/devicetree/base/thermal-zones/*/trips/*; do
-				[ -f "$trip/phandle" ] && [ -f "$trip/temperature" ] || continue
-				trip_phandle="$(read_be32 "$trip/phandle" 0 2>/dev/null || true)"
-				[ "$trip_phandle" = "$trip_ref" ] || continue
-				threshold="$(read_be32 "$trip/temperature" 0 2>/dev/null || true)"
-				hyst="$(read_be32 "$trip/hysteresis" 0 2>/dev/null || echo 0)"
-				is_uint "$threshold" || continue
-				threshold=$((threshold / 1000)); is_uint "$hyst" || hyst=0; hyst=$((hyst / 1000))
-				if [ "$CPU_TEMP" -ge "$((threshold - hyst))" ] && [ "$map_state" -gt "$THERMAL_STATE" ]; then
-					THERMAL_STATE="$map_state"
-				fi
-				done
+			# 按 phandle 在索引里定位这个 map 引用的 trip（不再重扫全部 trip）
+			trip_dir=""
+			for entry in $trip_index; do
+				case "$entry" in
+					"$trip_ref":*) trip_dir="${entry#*:}"; break ;;
+				esac
+			done
+			[ -n "$trip_dir" ] || continue
+			threshold="$(read_be32 "$trip_dir/temperature" 0 2>/dev/null || true)"
+			hyst="$(read_be32 "$trip_dir/hysteresis" 0 2>/dev/null || echo 0)"
+			is_uint "$threshold" || continue
+			threshold=$((threshold / 1000)); is_uint "$hyst" || hyst=0; hyst=$((hyst / 1000))
+			if [ "$CPU_TEMP" -ge "$((threshold - hyst))" ] && [ "$map_state" -gt "$THERMAL_STATE" ]; then
+				THERMAL_STATE="$map_state"
+			fi
 		done
 	fi
 	if [ "$maps_examined" -eq 1 ] && [ "$map_found" -eq 0 ]; then

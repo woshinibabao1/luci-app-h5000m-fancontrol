@@ -79,14 +79,41 @@ output="$(H5000M_FAN_MODULE_TEMP_SOURCE=off H5000M_FAN_MT5700M_TEMP_CACHE="${TMP
 printf '%s\n' "${output}" | grep -qx 'module_temp='
 
 # ------------------------------------------- ④ ubus 拿不到时退回"偏旧"缓存
-# 缓存 age=45s：过了刷新间隔 30s（该打 AT 了），但没过硬上限 60s。
-# 假 ubus 返回 garbage 模拟后端不可用 —— 此时应继续用旧值，而不是让风扇失据。
+# 缓存 age 比刷新间隔大（该打 AT 了），但仍在硬上限内 —— 此时应继续用旧值，
+# 而不是让风扇失据。假 ubus 返回 garbage 模拟后端不可用。
+#
+# ★ 必须显式把硬上限放大：从写文件到跑完控制器要花几秒（CI 上约 2 秒，慢机器十几秒），
+#   而默认窗口只有 60-30=30 秒宽 —— 窗口一漂出去，这条用例就会「因为测试跑得慢」
+#   而变红。守卫不能因计时而不稳定（这正是它以前只在 CI 上绿的原因）。
 UBUS_REPLY='garbage'
 export UBUS_REPLY
-age45=$((now - 45))
-printf 'temperature=39.0\ntemperature_sensor=ap1\nupdated=%s\n' "${age45}" > "${TMP}/temperature-stale"
-output="$(PATH="${TMP}/bin:${PATH}" H5000M_FAN_MT5700M_TEMP_CACHE="${TMP}/temperature-stale" H5000M_FAN_MODULE_TEMP_INTERVAL=30 sh "${CONTROLLER}" status 2>/dev/null)"
+printf 'temperature=39.0\ntemperature_sensor=ap1\nupdated=%s\n' "$((now - 45))" > "${TMP}/temperature-stale"
+output="$(PATH="${TMP}/bin:${PATH}" H5000M_FAN_MT5700M_TEMP_CACHE="${TMP}/temperature-stale" \
+	H5000M_FAN_MODULE_TEMP_INTERVAL=30 H5000M_FAN_MT5700M_TEMP_MAX_AGE=600 \
+	sh "${CONTROLLER}" status 2>/dev/null)"
 printf '%s\n' "${output}" | grep -qx 'module_temp=39'
 printf '%s\n' "${output}" | grep -qx 'module_sensor=ap1'
+
+# ------------------------------------------------ ⑤ 取数来源只允许 MT5700 Console
+# 5G 模块数据只有一条来源。三条静态断言各对应一种「绕过 Console」的写法：
+#   · 读别的模组管理软件留下的 /tmp 缓存（旧版本有，已移除）
+#   · ubus 调用的目标不是 mt5700
+#   · 自己开串口（/dev/ttyUSB1 的唯一持有者是 Console 的 Rust 服务）
+# 判据跑在**去注释后的源码**上 —— 控制器里正好有注释提到 /dev/ttyUSB1，
+# 直接 grep 会把它当成真调用（注释必须显式排除）。
+code="$(awk '!/^[[:space:]]*#/' "${CONTROLLER}")"
+
+if printf '%s\n' "${code}" | grep -qE '/tmp/cache_base_info|/tmp/cache_[^ ]*info'; then
+	echo 'module data must not come from other modem managers caches' >&2
+	exit 1
+fi
+if printf '%s\n' "${code}" | grep -E 'ubus[[:space:]]+call' | grep -qvE 'ubus[[:space:]]+call[[:space:]]+mt5700[[:space:]]'; then
+	echo 'every ubus call must target mt5700 (MT5700 Console)' >&2
+	exit 1
+fi
+if printf '%s\n' "${code}" | grep -qE '/dev/tty[A-Za-z0-9]*'; then
+	echo 'the controller must not open the serial port directly' >&2
+	exit 1
+fi
 
 echo 'module temperature tests passed'

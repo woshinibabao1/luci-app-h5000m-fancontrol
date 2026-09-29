@@ -1,5 +1,49 @@
 # Changelog
 
+## 2.2.1
+
+### 5G 模块数据收敛到唯一来源：MT5700 Console
+
+- 移除对**其它模组管理软件**缓存的读取（`/tmp/cache_base_info_*` / `/tmp/cache_*info*`）。
+  那既不是 MT5700 Console 的取数链路，本机也不存在。模块温度现在只可能来自
+  `ubus call mt5700 at '{"cmd":"AT^CHIPTEMP?"}'`。
+- 模块温度缓存改到本插件自己的命名空间 `/var/run/h5000m-fancontrol.temperature`。
+  该文件既是写目标、也是 `auto` 模式下的读来源；留在 `/var/run/mt5700m/`（被本机型
+  构建明确排除的 `luci-app-mt5700m` 命名空间）就可能读到第三方写进去的数值。
+  旧环境变量 `H5000M_FAN_MT5700M_TEMP_CACHE` 仍被承认，新名 `H5000M_FAN_TEMP_CACHE` 优先。
+- 新增静态守卫：ubus 调用必须全部指向 `mt5700`、不得出现其它模组管理软件的缓存路径、
+  不得直接开串口（判据跑在**去注释后的源码**上，避免被注释里的 `/dev/ttyUSB1` 顶住）。
+
+### 性能：单轮外部进程数 −30%
+
+真机实测（H5000M）：`status` 137 → **96** 个外部进程、耗时 330–400ms → **270–310ms**；
+`apply` 136 → **95**、340–360ms → **270–280ms**。
+
+- UCI 读取改走 `/lib/functions.sh` 的 `config_load` / `config_get`：`load_config` 的
+  17 次 `uci -q get` 全部归零。真机逐项核对 18 个选项取值一致、缺项行为一致；
+  非 OpenWrt 环境（CI 单元测试）没有该文件，退回 `uci` 命令行，行为与改动前一致。
+- `set_thermal_floor` 里 trip 的 phandle 索引只建一次。原先内层循环对每个属于风扇的
+  cooling-map 都把全部 trip 重扫一遍 —— 实测 36 次设备树读取里有 18 次是这样重复出来的。
+  设备树在一次开机内只读且不变，索引不存在过期问题。
+- **行为等价性已在真机验证**：`set_thermal_floor` 在 0–130 ℃ 的 131 个采样点上
+  `state` / `floor` / `owner` / `max` 与原实现逐项一致；再隔离兜底分支单独验证设备树
+  路径，三个故意注入的变异全部判红 —— 证明这套等价性验证手段有边界级灵敏度。
+- 被淘汰的方案：用 `hexdump -s/-n` 取代 `dd | hexdump`（可再省一半进程）。
+  真机 A/B 证明**不等价**：`busybox hexdump -s` 在偏移 ≥ 文件大小时与 `dd` 行为不同，
+  旧实现安全地返回空串、新实现会静默返回错误数值，属正确性退化，故放弃。
+
+### 测试与可维护性
+
+- **`tests/test-thermal-policy-safety.sh` 此前全仓没有任何引用 —— 写了但从未被执行。**
+  现已接入 CI 真正执行。
+- 该测试原先有一条断言钉的是**注释文字**（`grep -q 'kernel must'`）：改说明就会误报，
+  且证明不了任何行为。已换成行为断言（不写 `user_space`、恢复路径的两个调用点在位、
+  恢复函数确实把 policy 写回）。
+- 修掉一处不可达代码（`find_module_temp` 末尾重复的 `return 0`）。
+- 修正 `README` 的版本表述（最近发布是 `v2.1.0`，源码树为 `2.2.1`）。
+- LuCI：去掉赋值后从未使用的 `lastStatus`；修正 `renderForm` 中 `m.handleSaveApply`
+  的缩进层级。
+
 ## 2.2.0
 
 - **5G 模块温度改为经 ubus 向 MT5700 Console 的 Rust 后端查询**（`AT^CHIPTEMP?`）。

@@ -218,7 +218,6 @@ return view.extend({
 		var pwm = this.toNum(data.pwm_value, NaN);
 		var age = this.toNum(data.state_age, NaN), interval = this.toNum(data.interval, 5), health = document.getElementById('h5fan-health');
 		var requested = this.toNum(data.requested_pwm, NaN), applied = this.toNum(data.applied_pwm || data.pwm_value, NaN);
-		this.lastStatus = data;
 		this.setText('h5fan-temp-source', _('Current input: %s').format((data.control_sensor || _('No valid sensor')) + ' · ' + this.formatTemp(data.control_temp)));
 		['cpu', 'phy', 'wifi', 'modem'].forEach(function(name) {
 			var node = document.getElementById('h5fan-' + name);
@@ -335,15 +334,15 @@ return view.extend({
 		o = s.taboption('safety', form.Value, 'start_boost_ms', _('Startup boost duration'));
 		o.datatype = 'range(0,3000)'; o.default = '700'; o.rmempty = false; o.description = _('A short boost helps a stopped fan start reliably. Set 0 to disable.');
 
-	m.handleSaveApply = function(ev, mode) {
-		return form.Map.prototype.handleSaveApply.apply(this, [ ev, mode ]).then(function() {
-			return fs.exec('/etc/init.d/h5000m-fancontrol', [ 'restart' ]);
-		}).then(function() {
-			ui.addNotification(null, E('p', _('Cooling policy applied successfully.')));
-		}, function(err) {
-			ui.addNotification(null, E('p', _('Failed to apply cooling policy:') + ' ' + err.message), 'danger');
-		});
-	};
+		m.handleSaveApply = function(ev, mode) {
+			return form.Map.prototype.handleSaveApply.apply(this, [ ev, mode ]).then(function() {
+				return fs.exec('/etc/init.d/h5000m-fancontrol', [ 'restart' ]);
+			}).then(function() {
+				ui.addNotification(null, E('p', _('Cooling policy applied successfully.')));
+			}, function(err) {
+				ui.addNotification(null, E('p', _('Failed to apply cooling policy:') + ' ' + err.message), 'danger');
+			});
+		};
 		return m;
 	},
 

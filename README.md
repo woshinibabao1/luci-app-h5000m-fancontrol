@@ -9,7 +9,8 @@
 > H5000M fan manager for OpenWrt with temperature-aware profiles, manual PWM control, hysteresis, delayed spin-down, start boost and sensor failsafe protection.
 
 版本采用标准的 `主版本.次版本.修订版本-r打包修订` 格式。GitHub Release 仅使用
-语义版本标签（当前为 `v2.1.0`），OpenWrt 安装包版本为 `2.1.0-r1`。
+语义版本标签：最近一次发布是 `v2.1.0`，源码树当前为 `2.2.1-r1`
+（`2.2.0` / `2.2.1` 尚未打标签）。
 
 ![散热管理界面](docs/fan-control-ui.jpg)
 
@@ -89,27 +90,32 @@ ubus call mt5700 at '{"cmd":"AT^CHIPTEMP?"}'
 #    单位是 0.1℃，第 10 路 modem2 = 410 最高 → 41℃
 ```
 
-取法依次是：新鲜缓存 → ubus 查询 → 未过硬上限的旧缓存 → `/tmp` 兜底扫描。
-查询成功后会把结果按 `temperature` / `temperature_sensor` / `updated` 三行写回
-`/var/run/mt5700m/temperature`，格式与此前版本一致。
+取法依次是：**本插件自己的缓存** → ubus 查询 → 未过硬上限的旧缓存。
+
+5G 模块数据**只有这一条来源**：所有取数都经 `ubus call mt5700 at` 走 MT5700 Console。
+本插件不读任何**其它模组管理软件**留下的缓存文件（旧版本会扫 `/tmp/cache_*info*`，
+那既不是 Console 的取数链路，也不在本机部署范围内，已移除）。查询成功后会把结果按
+`temperature` / `temperature_sensor` / `updated` 三行写回**本插件自己的**缓存
+`/var/run/h5000m-fancontrol.temperature`；缓存既是写目标也是读来源，放在自己的
+命名空间里才能保证读到的必定是 Console 的数值。
 
 为什么这么绕，而不是每轮都查：
 
 - 风扇主循环是 **5 秒**一轮，每轮都打 AT 会持续占用 AT 通道。
   `module_temp_interval`（默认 **30 秒**）决定真正打 AT 的频率，其余轮次读缓存。
-- `/dev/ttyUSB1` 的唯一持有者是那个 Rust 服务，脚本自己开串口会把 AT 通道抢坏，
-  所以必须走 ubus → rpcd ucode → 后端的同一条链路。
+- `/dev/ttyUSB1` 的唯一持有者是 MT5700 Console 的 Rust 服务（`at-webserver-rust`），
+  脚本自己开串口会把 AT 通道抢坏，所以必须走 ubus → rpcd ucode → 后端的同一条链路。
 - 模组报告的无效读数 **65535** 会被跳过。
 
 相关 UCI 选项（`/etc/config/h5000m_fancontrol`）：
 
 | 选项 | 默认 | 说明 |
 |---|---|---|
-| `module_temp_source` | `auto` | `auto` 三级回退；`cache` 只用缓存（完全不碰 AT）；`ubus` 只走查询；`off` 不取模块温度 |
+| `module_temp_source` | `auto` | `auto` 三级回退（缓存→查询→旧缓存）；`cache` 只用本插件缓存（完全不碰 AT）；`ubus` 只走查询；`off` 不取模块温度 |
 | `module_temp_interval` | `30` | 两次 `AT^CHIPTEMP?` 之间的最小间隔（秒），范围 5–3600 |
 
-没装 MT5700 Console（或它的服务没起来）时，ubus 查询失败，控制器退回旧缓存 /
-兜底扫描；都拿不到就是"没读到"，模块温度不参与取热，**不会**因此触发故障保护。
+没装 MT5700 Console（或它的服务没起来）时，ubus 查询失败，控制器退回自己的旧缓存；
+拿不到就是"没读到"，模块温度不参与取热，**不会**因此触发故障保护。
 
 ## 安全说明
 
