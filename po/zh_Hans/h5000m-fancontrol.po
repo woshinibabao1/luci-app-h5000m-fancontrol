@@ -1,134 +1,32 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"
 
-msgid "Fan Control"
-msgstr "风扇控制"
+msgid "%s (%s)"
+msgstr "%s（%s）"
 
-msgid "Adjust the PWM fan policy."
-msgstr "调节 PWM 风扇策略。"
+msgid "%s / 255"
+msgstr "%s / 255"
 
-msgid "Current Status"
-msgstr "当前状态"
+msgid "%s s"
+msgstr "%s 秒"
 
-msgid "Fan Speed"
-msgstr "风扇速度"
-
-msgid "Current PWM"
-msgstr "当前 PWM"
-
-msgid "Modem Temperature"
-msgstr "模块温度"
-
-msgid "CPU Temperature"
-msgstr "CPU 温度"
-
-msgid "WiFi Temperature 1"
-msgstr "WiFi 温度 1"
-
-msgid "WiFi Temperature 2"
-msgstr "WiFi 温度 2"
-
-msgid "Unknown"
-msgstr "未知"
-
-msgid "PWM percentage unavailable"
-msgstr "PWM 百分比不可用"
-
-msgid "PWM node not found"
-msgstr "未找到 PWM 节点"
-
-msgid "From QModem cache"
-msgstr "来自 QModem 缓存"
-
-msgid "Fan Curve"
-msgstr "风扇曲线"
-
-msgid "Auto Curve"
-msgstr "自动曲线"
-
-msgid "Manual PWM"
-msgstr "手动 PWM"
-
-msgid "Temperature"
-msgstr "温度"
-
-msgid "Temperature Range"
-msgstr "温度区间"
-
-msgid "PWM Range"
-msgstr "PWM 区间"
-
-msgid "Manual mode: the slider value is used as a fixed PWM output."
-msgstr "手动模式：滑杆数值作为固定 PWM 输出。"
-
-msgid "Off mode: fan PWM output is set to 0."
-msgstr "关闭模式：风扇 PWM 输出为 0。"
-
-msgid "Auto mode: low temperatures use the minimum PWM, high temperatures use the maximum PWM, and values in between increase linearly."
-msgstr "自动模式：低温使用最低 PWM，高温使用最高 PWM，中间线性递增。"
-
-msgid "Enable"
-msgstr "启用"
-
-msgid "Mode"
-msgstr "模式"
-
-msgid "Auto"
-msgstr "自动"
-
-msgid "Manual"
-msgstr "手动"
-
-msgid "Off"
-msgstr "关闭"
-
-msgid "Minimum PWM"
-msgstr "最低 PWM"
-
-msgid "Maximum PWM"
-msgstr "最高 PWM"
-
-msgid "Low Temperature Threshold"
-msgstr "低温阈值"
-
-msgid "High Temperature Threshold"
-msgstr "高温阈值"
-
-msgid "Refresh Interval"
-msgstr "刷新间隔"
-
-msgid "Fan control has been applied."
-msgstr "风扇控制已应用。"
-
-msgid "Failed to apply fan control:"
-msgstr "风扇控制应用失败："
-
-msgid "%s / 255 · %s%%"
-msgstr "%s / 255 · %s%%"
+msgid "%s s ago"
+msgstr "%s 秒前"
 
 msgid "%s °C"
 msgstr "%s °C"
 
+msgid "%s · kernel floor"
+msgstr "%s · 内核下限"
+
 msgid "5G modem"
-msgstr "5G 模块"
+msgstr "5G 模组"
 
 msgid "A short boost helps a stopped fan start reliably. Set 0 to disable."
-msgstr "短时助推可帮助停止的风扇可靠启动；设为 0 可关闭助推。"
+msgstr "短暂助推有助于停转的风扇可靠启动，填 0 关闭。"
 
-msgid "Applied output"
-msgstr "实际输出"
-
-msgid "Control ownership"
-msgstr "控制权"
-
-msgid "Fan manager"
-msgstr "风扇管理器"
-
-msgid "Exclusive fan policy control"
-msgstr "独占风扇策略控制"
-
-msgid "The fan manager has exclusive fan policy control. Kernel CPU throttling and hot/critical over-temperature protection remain active."
-msgstr "风扇管理器独占风扇策略控制；内核 CPU 降频及高温/临界过热保护仍保持启用。"
+msgid "Applied"
+msgstr "实际"
 
 msgid "Automatic"
 msgstr "自动"
@@ -136,56 +34,44 @@ msgstr "自动"
 msgid "Balanced"
 msgstr "均衡"
 
-msgid "CPU"
-msgstr "CPU"
-
 msgid "CPU only"
 msgstr "仅 CPU"
 
-msgid "Checking service…"
-msgstr "正在检查服务…"
+msgid "Checking…"
+msgstr "检测中…"
 
-msgid "Choose a cooling profile or set a manual output. Safety limits remain active in every mode."
-msgstr "选择散热方案或设置手动输出。所有模式都会保留安全限制。"
+msgid "Comma-separated temperature:percent points. The controller interpolates between them."
+msgstr "逗号分隔的「温度:百分比」点，控制器在点之间线性插值。"
 
-msgid "Comma-separated temperature:percent points. The controller interpolates between points."
-msgstr "使用逗号分隔“温度:百分比”控制点，控制器会在各点之间插值。"
+msgid "Control"
+msgstr "控温"
+
+msgid "Control input"
+msgstr "控温输入"
 
 msgid "Control interval"
 msgstr "控制间隔"
 
 msgid "Control temperature"
-msgstr "控制温度"
-
-msgid "Current input: %s"
-msgstr "当前依据：%s"
-
-msgid "Controller running · updated %ss ago"
-msgstr "控制器运行正常 · %s 秒前更新"
-
-msgid "Controller status is stale"
-msgstr "控制器状态已过期"
+msgstr "控温温度源"
 
 msgid "Cooling management"
 msgstr "散热管理"
 
-msgid "Automatically balances cooling and noise based on device temperatures."
-msgstr "根据设备温度自动调节风扇，兼顾散热与安静。"
-
-msgid "Checking…"
-msgstr "正在检查…"
+msgid "Cooling overview"
+msgstr "散热总览"
 
 msgid "Cooling policy"
 msgstr "散热策略"
 
 msgid "Cooling policy applied successfully."
-msgstr "散热策略已成功应用。"
+msgstr "散热策略已生效。"
 
 msgid "Cooling profile"
-msgstr "散热方案"
+msgstr "散热曲线"
 
-msgid "Cooling state %s / %s"
-msgstr "散热状态 %s / %s"
+msgid "Curve failsafe"
+msgstr "曲线异常，已进入安全模式"
 
 msgid "Custom"
 msgstr "自定义"
@@ -193,47 +79,59 @@ msgstr "自定义"
 msgid "Custom curve"
 msgstr "自定义曲线"
 
-msgid "Effective fan policy"
-msgstr "当前生效的风扇策略"
+msgid "Do not read"
+msgstr "不读取"
 
 msgid "Enable enhanced controller"
-msgstr "启用增强控制器"
+msgstr "启用增强控制"
 
 msgid "Ethernet PHY"
 msgstr "以太网 PHY"
 
 msgid "Failed to apply cooling policy:"
-msgstr "散热策略应用失败："
-
-msgid "Failsafe active · full cooling"
-msgstr "故障保护已启用 · 全速散热"
+msgstr "策略应用失败："
 
 msgid "Failsafe cooling"
-msgstr "安全散热中"
+msgstr "安全模式散热"
 
-msgid "Status delayed"
-msgstr "状态延迟"
+msgid "Fan curve"
+msgstr "风扇曲线"
 
-msgid "Running normally"
-msgstr "运行正常"
+msgid "Fan manager"
+msgstr "插件接管"
 
 msgid "Fan output"
 msgstr "风扇输出"
 
-# 注：原 "From the local modem cache"（来自本地模块缓存）已不再使用 ——
-# 模块温度现在经 ubus 向 MT5700 Console 的 Rust 后端查询，页面提示改为
-# "Hottest channel: %s"（最热通道）。此条目保留仅为历史兼容。
-msgid "From the local modem cache"
-msgstr "来自本地模块缓存"
+msgid "Fan output follows the hottest sensor through a temperature curve. Kernel protection stays in charge of throttling and emergency cooling."
+msgstr "风扇输出跟随最热的传感器沿温度曲线调节；内核保护始终负责降频与临界过热保护。"
 
-msgid "H5000M Cooling"
-msgstr "H5000M 散热管理"
+msgid "Following curve"
+msgstr "按曲线调节"
+
+msgid "Holding before spin-down"
+msgstr "降速等待中"
+
+msgid "Hottest available considers CPU, Wi-Fi, Ethernet PHY and the 5G modem."
+msgstr "「最热可用」会同时考虑 CPU、Wi-Fi、以太网 PHY 与 5G 模组。"
 
 msgid "Hottest available sensor"
-msgstr "可用传感器中的最高温度"
+msgstr "最热的可用传感器"
 
 msgid "Hottest channel: %s"
 msgstr "最热通道：%s"
+
+msgid "Hottest one drives the fan"
+msgstr "最热的一路驱动风扇"
+
+msgid "Kernel"
+msgstr "内核"
+
+msgid "Kernel control"
+msgstr "内核控制"
+
+msgid "Kernel only"
+msgstr "仅内核"
 
 msgid "Kernel protection only"
 msgstr "仅内核保护"
@@ -241,26 +139,26 @@ msgstr "仅内核保护"
 msgid "Kernel safety floor"
 msgstr "内核安全下限"
 
-msgid "Kernel thermal protection is always retained. Requested output may be raised automatically when the kernel requires more cooling."
-msgstr "内核温控保护始终保留；当内核需要更多散热时，实际输出会自动高于请求值。"
+msgid "Kernel thermal protection is always retained; the effective output may be raised above the request when the kernel needs more cooling."
+msgstr "内核热保护始终保留；当内核需要更多散热时，实际输出可能高于请求值。"
 
-msgid "Live fan policy, temperature sensors and kernel safety protection."
-msgstr "实时查看风扇策略、温度传感器和内核安全保护。"
-
-msgid "Loading…"
-msgstr "正在载入…"
+msgid "Manual"
+msgstr "手动"
 
 msgid "Manual PWM output"
 msgstr "手动 PWM 输出"
 
-msgid "No tachometer signal is exposed by the hardware/driver"
-msgstr "硬件或驱动没有提供转速脉冲信号"
+msgid "Manual setting"
+msgstr "手动设定"
 
 msgid "No valid sensor"
-msgstr "没有有效传感器"
+msgstr "无有效传感器"
 
-msgid "Not supported"
-msgstr "不支持"
+msgid "Not detected"
+msgstr "未检测到"
+
+msgid "Not exposed by this radio driver"
+msgstr "该无线驱动未暴露温度"
 
 msgid "Operating mode"
 msgstr "运行模式"
@@ -268,26 +166,50 @@ msgstr "运行模式"
 msgid "Performance"
 msgstr "性能"
 
+msgid "Pick a profile or a fixed output. Safety limits stay active in every mode."
+msgstr "选择曲线或固定输出。任何模式下安全限制都生效。"
+
 msgid "Policy"
 msgstr "策略"
 
-msgid "Policy reason"
-msgstr "策略原因"
-
 msgid "Prevents repeated speed changes around a curve point."
-msgstr "避免温度在曲线控制点附近波动时反复改变转速。"
+msgstr "避免在曲线拐点附近反复调速。"
+
+msgid "Query the radio driver"
+msgstr "向无线驱动查询"
 
 msgid "Quiet"
 msgstr "静音"
 
-msgid "Requested output"
-msgstr "请求输出"
+msgid "Radio driver statistics"
+msgstr "无线驱动统计"
+
+msgid "Raw PWM"
+msgstr "PWM 原始值"
+
+msgid "Requested"
+msgstr "请求"
+
+msgid "Requires MT5700 Console"
+msgstr "需要 MT5700 Console"
 
 msgid "Response & safety"
 msgstr "响应与安全"
 
+msgid "Running normally"
+msgstr "运行正常"
+
 msgid "Seconds between control decisions. The dashboard refreshes independently."
-msgstr "两次控制决策之间的秒数；仪表盘使用独立的刷新周期。"
+msgstr "两次控制决策之间的秒数；页面刷新是独立的。"
+
+msgid "Seconds between radio-driver queries. The dashboard refresh does not query the driver."
+msgstr "两次向无线驱动查询的间隔秒数；页面刷新不会触发查询。"
+
+msgid "Sensor failsafe"
+msgstr "传感器异常，已进入安全模式"
+
+msgid "Shared with kernel"
+msgstr "内核与插件共用"
 
 msgid "Speed-down delay"
 msgstr "降速延迟"
@@ -298,53 +220,50 @@ msgstr "启动助推 PWM"
 msgid "Startup boost duration"
 msgstr "启动助推时长"
 
+msgid "Status delayed"
+msgstr "状态延迟"
+
 msgid "Temperature hysteresis"
 msgstr "温度滞回"
 
-msgid "Temperatures must increase from 0–150 °C and percentages must be 0–100."
-msgstr "温度必须在 0–150 °C 范围内递增，百分比必须在 0–100 范围内。"
+msgid "Temperature sensors"
+msgstr "温度传感器"
 
-msgid "The hottest-sensor option considers CPU, Ethernet PHY, Wi-Fi and the 5G modem (queried from MT5700 Console)."
-msgstr "最高温度模式会综合 CPU、以太网 PHY、Wi-Fi 和 5G 模块温度（模块温度经 ubus 向 MT5700 Console 查询）。"
+msgid "Temperatures must increase from 0–150 °C and percentages must be 0–100."
+msgstr "温度须在 0–150 °C 内递增，百分比须在 0–100 之间。"
+
+msgid "The MT7992 exposes its chip temperature only through private driver statistics, so it is polled at a throttled rate and cached."
+msgstr "MT7992 只在私有驱动统计里暴露芯片温度，因此按节流间隔查询并缓存。"
+
+msgid "The fan manager owns the fan policy. Kernel CPU throttling and critical over-temperature protection stay active."
+msgstr "插件独占风扇策略；内核的 CPU 降频与临界过热保护仍然生效。"
 
 msgid "The kernel safety floor may raise the effective output above this value."
-msgstr "内核安全下限可能使实际输出高于此设置值。"
+msgstr "内核安全下限可能把实际输出抬到该值之上。"
 
-msgid "Unavailable"
-msgstr "不可用"
-
-msgid "Via MT5700 Console"
-msgstr "经由 MT5700 Console"
+msgid "Thermal owner"
+msgstr "热控归属"
 
 msgid "Use comma-separated temperature:percent points, for example 35:0,45:50,70:80,90:100."
-msgstr "请使用逗号分隔“温度:百分比”控制点，例如 35:0,45:50,70:80,90:100。"
+msgstr "请使用逗号分隔的「温度:百分比」，例如 35:0,45:50,70:80,90:100。"
 
-msgid "Wait this many seconds before lowering fan output; temperature increases are applied immediately."
-msgstr "降低风扇输出前等待指定秒数；温度升高会立即响应。"
+msgid "Via MT5700 Console"
+msgstr "经 MT5700 Console"
+
+msgid "Wait this many seconds before lowering output; temperature increases apply immediately."
+msgstr "降速前等待的秒数；温度上升会立即生效。"
 
 msgid "When disabled, the fan follows the kernel thermal protection level only."
-msgstr "关闭后，风扇将仅跟随内核温控保护等级。"
+msgstr "关闭后风扇只跟随内核热保护档位。"
 
-msgid "Wi-Fi radios"
-msgstr "Wi-Fi 射频"
+msgid "Wi-Fi poll interval"
+msgstr "Wi-Fi 查询间隔"
 
-msgid "%s · kernel safety floor"
-msgstr "%s · 内核安全下限"
+msgid "Wi-Fi temperature"
+msgstr "Wi-Fi 温度"
 
-msgid "Waiting before speed down"
-msgstr "等待降速"
+msgid "hwmon node"
+msgstr "hwmon 节点"
 
-msgid "Automatic curve"
-msgstr "自动曲线"
-
-msgid "Manual request"
-msgstr "手动请求"
-
-msgid "Kernel protection"
-msgstr "内核保护"
-
-msgid "Sensor failsafe"
-msgstr "传感器故障保护"
-
-msgid "Curve failsafe"
-msgstr "曲线故障保护"
+msgid "thermal zone"
+msgstr "thermal zone"
