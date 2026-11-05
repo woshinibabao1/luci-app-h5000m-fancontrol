@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
   pull_request:
 
@@ -30,6 +31,10 @@ jobs:
       - name: Run controller tests
         run: |
           sh tests/test-module-temperature.sh
+<<<<<<< HEAD
+=======
+          sh tests/test-vendor-temperature.sh
+>>>>>>> upstream/main
           sh tests/test-thermal-policy-safety.sh
 
       - name: Check LuCI JavaScript syntax

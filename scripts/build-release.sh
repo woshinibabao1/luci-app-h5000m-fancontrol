@@ -87,6 +87,20 @@ find bin -type f \( -name "luci-app-h5000m-fancontrol*.${ext}" \
 	-o -name "luci-i18n-h5000m-fancontrol-zh-cn*.${ext}" \) -exec cp -f {} "${output_dir}/" \;
 test "$(find "${output_dir}" -type f -name "*.${ext}" | wc -l)" -ge 2
 
+# apk 必须显式签名并当场验签：CI 装出来的 SDK 私钥只在这台机器上，
+# 用 --allow-untrusted 接受自己刚打的包，再用只含公钥的 keys-dir 验回来。
+# ipk 走 opkg，没有这一步。
+if [ "${ext}" = "apk" ] && [ -f private-key.pem ] && [ -x staging_dir/host/bin/apk ]; then
+	mkdir -p "${work_dir}/verification-keys"
+	cp public-key.pem "${work_dir}/verification-keys/build.pem"
+	for package in "${output_dir}"/*.apk; do
+		staging_dir/host/bin/apk adbsign --allow-untrusted --sign-key private-key.pem "$package"
+		staging_dir/host/bin/apk --keys-dir "${work_dir}/verification-keys" verify "$package"
+	done
+else
+	echo "NOTE: 跳过 apk 签名（非 apk 产物或 SDK 未生成密钥）"
+fi
+
 # 签名公钥：仅在 SDK 自己生成时才带出去。23.05 默认不开
 # SIGN_EACH_PACKAGE，SDK 根目录没有 public-key.pem，无条件 cp 会以
 # "cannot stat 'public-key.pem'" 失败 —— 而此时包已打好、闸门也已通过。
@@ -96,4 +110,12 @@ else
 	echo "NOTE: SDK 未生成 public-key.pem（未开启签名），产物不附带公钥"
 fi
 
-(cd "${output_dir}" && find . -maxdepth 1 -type f \( -name "*.${ext}" -o -name 'openwrt-sdk-build.pem' \) -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+# 产物来源可追溯：哪个 SDK、哪个提交、SDK 自身的校验值，一起写进 BUILD-INFO。
+printf 'SDK=%s
+SOURCE_COMMIT=%s
+TARGET=mediatek/filogic
+' "${sdk_ver}" \
+	"$(git -C "${repo_dir}" rev-parse HEAD)" > "${output_dir}/BUILD-INFO.txt"
+grep "[ *]${archive}$" "${work_dir}/sha256sums" >> "${output_dir}/BUILD-INFO.txt" || true
+
+(cd "${output_dir}" && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
