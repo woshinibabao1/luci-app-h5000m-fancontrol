@@ -24,13 +24,18 @@
 
 ## 功能
 
-- 汇总 CPU、以太网 PHY、Wi-Fi 射频及 5G 模块温度（模块温度经 ubus 向 MT5700 Console 查询）
+- 汇总 CPU、以太网 PHY、Wi-Fi 射频及 5G 模块温度：
+  - CPU / PHY 走 sysfs 的 thermal zone 与 hwmon；
+  - Wi-Fi 走厂商 `mt_wifi` 驱动的 `iwpriv stat`（`CurrentTemperature`）—— 这台机器的
+    无线不走 mac80211，没有对应的 thermal/hwmon 节点；读数按 `wifi_temp_interval`
+    节流缓存，可在策略页关闭；
+  - 5G 模块经 ubus 向 MT5700 Console 查询 `AT^CHIPTEMP?`。
 - 静音、均衡、性能和自定义四种自动曲线
 - 自动、手动和仅内核保护三种运行模式
 - 温度滞回及降速延迟，减少风扇频繁波动
 - 风扇停转后的启动助推
 - 传感器或曲线异常时自动进入高输出安全模式
-- 简体中文 LuCI 界面
+- 概览式 LuCI 界面（风扇输出环形仪表、四路温度矩阵、曲线工作点），浅色/深色与移动端都适配
 - 不依赖云服务，不收集或上传设备数据
 
 ## 兼容性
