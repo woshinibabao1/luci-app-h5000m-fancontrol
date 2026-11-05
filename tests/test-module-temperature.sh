@@ -9,7 +9,7 @@ set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 CONTROLLER="${ROOT}/root/usr/sbin/h5000m-fancontrol"
-TMP="$(mktemp -d)"
+TMP="$(cd "$(mktemp -d)" && pwd)"
 trap 'rm -rf "${TMP}"' EXIT INT TERM
 
 # 假 ubus：只认 mt5700 at 这一次调用，响应内容由 UBUS_REPLY 决定

@@ -10,6 +10,12 @@ config settings 'settings'
 	# 两次 AT^CHIPTEMP? 之间的最小间隔（秒）。风扇主循环是 5s 一轮，
 	# 这个值就是实际打 AT 的频率，别调太小。
 	option module_temp_interval '30'
+	# WiFi 芯片（MT7992）温度：来源是私有驱动 mt_wifi 的 iwpriv 统计，
+	# 节流后缓存 —— 每 3 秒的页面轮询不会每次都去问驱动。
+	#   auto = 缓存新鲜就用缓存，过期才问一次 iwpriv / off = 完全不取
+	option wifi_temp_source 'auto'
+	# 两次 iwpriv 之间的最小间隔（秒）
+	option wifi_temp_interval '30'
 	option manual_pwm '160'
 	option interval '5'
 	option hysteresis '2'

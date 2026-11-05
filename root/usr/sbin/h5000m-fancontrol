@@ -19,6 +19,11 @@ MODULE_TEMP_UBUS_TIMEOUT="${H5000M_FAN_MODULE_TEMP_UBUS_TIMEOUT:-8}"
 # 传感器与无线接口的系统路径：生产恒为 /sys 与 /sys/class/net，测试可指向假目录。
 SENSOR_SYSFS_ROOT="${H5000M_FAN_SENSOR_SYSFS_ROOT:-/sys}"
 RADIO_SYSFS_ROOT="${H5000M_FAN_RADIO_SYSFS_ROOT:-/sys/class/net}"
+# 厂商驱动的 iwpriv 回退要 fork 进程、走驱动 ioctl。默认 0 = 不节流（与上游行为一致，
+# 测试也可预期）；安装后由 uci-defaults 写成 30s，页面 3 秒一次的 status 轮询才不会
+# 每次都去问驱动。缓存按接口分开，一个接口一个文件。
+WIFI_TEMP_CACHE="${H5000M_FAN_WIFI_TEMP_CACHE:-/var/run/h5000m-fancontrol.wifi}"
+WIFI_TEMP_MAX_AGE="${H5000M_FAN_WIFI_TEMP_MAX_AGE:-120}"
 
 is_uint() {
 	case "$1" in
@@ -97,6 +102,10 @@ load_config() {
 	# 两次 AT^CHIPTEMP? 之间的最小间隔（默认 30s，与 MT5700 Console 前端慢档一致）。
 	# 风扇主循环是 5s 一轮，没有这个节流就会每 5 秒占用一次 AT 通道。
 	MODULE_TEMP_INTERVAL="$(cfg_uint module_temp_interval "${H5000M_FAN_MODULE_TEMP_INTERVAL:-30}" 5 3600)"
+	# WiFi 芯片温度：auto = 缓存新鲜就用缓存，过期才问一次 iwpriv；off = 完全不碰。
+	WIFI_TEMP_SOURCE="$(cfg_string wifi_temp_source "${H5000M_FAN_WIFI_TEMP_SOURCE:-auto}")"
+	case "$WIFI_TEMP_SOURCE" in auto|off) ;; *) WIFI_TEMP_SOURCE="auto" ;; esac
+	WIFI_TEMP_INTERVAL="$(cfg_uint wifi_temp_interval "${H5000M_FAN_WIFI_TEMP_INTERVAL:-0}" 0 3600)"
 	MANUAL_PWM="$(cfg_uint manual_pwm 160 0 255)"
 	INTERVAL="$(cfg_uint interval 5 2 60)"
 	HYSTERESIS="$(cfg_uint hysteresis 2 0 10)"
@@ -372,10 +381,15 @@ max_sensor() {
 read_vendor_radio_temp() {
 	local iface="$1" output
 	command -v iwpriv >/dev/null 2>&1 || return 1
-	# Do not add an unbounded driver ioctl to the safety controller loop.
-	command -v timeout >/dev/null 2>&1 || return 1
 	[ -d "$RADIO_SYSFS_ROOT/$iface" ] || return 1
-	output="$(timeout 1 iwpriv "$iface" stat 2>/dev/null)" || return 1
+	# 驱动 ioctl 是本地调用，但别把无界调用塞进安全控制回路：有 timeout 就限时 1 秒。
+	# ★ 这台机器的固件（r33382）没有 timeout applet，写成 `command -v timeout || return 1`
+	#   会让"厂商温度"在本机永远读不到 —— 缺这个工具时必须降级为直接调用，而不是整条失效。
+	if command -v timeout >/dev/null 2>&1; then
+		output="$(timeout 1 iwpriv "$iface" stat 2>/dev/null)" || return 1
+	else
+		output="$(iwpriv "$iface" stat 2>/dev/null)" || return 1
+	fi
 	printf '%s\n' "$output" | awk '
 		/CurrentTemperature[[:space:]]*=/ {
 			split($0,a,"="); gsub(/^[[:space:]]+|[[:space:]]+$/, "", a[2])
@@ -384,10 +398,62 @@ read_vendor_radio_temp() {
 		}'
 }
 
+# 带节流的厂商温度读取。
+#
+# interval = 0（默认）时既不读也不写缓存，直接问驱动 —— 与上游行为完全一致，
+# 单元测试因此可以逐次改变 CASE 观察真实返回值。
+# interval > 0 时：新鲜缓存直接用；过期才问一次驱动；驱动失败/无响应时退回
+# 未过上限的旧值（宁可短暂用过时读数，也别让 WiFi 从取热里凭空消失）。
+#
+# 输出为纯整数摄氏度，失败返回 1 —— 调用方用 $(...) 取值，空串即"没读到"。
+wifi_temp_cached() {
+	local iface="$1" cache value updated now age
+	# 开关就落在这里：off 时连驱动都不问，缓存也不读（否则"关闭"是假的）。
+	[ "${WIFI_TEMP_SOURCE:-auto}" != "off" ] || return 1
+	if [ "${WIFI_TEMP_INTERVAL:-0}" -le 0 ] 2>/dev/null; then
+		read_vendor_radio_temp "$iface" 2>/dev/null
+		return $?
+	fi
+
+	cache="${WIFI_TEMP_CACHE}.${iface}"
+	if [ -r "$cache" ]; then
+		value="$(sed -n 's/^temperature=//p' "$cache" 2>/dev/null | head -n 1)"
+		updated="$(sed -n 's/^updated=//p' "$cache" 2>/dev/null | head -n 1)"
+		if is_uint "$value" && is_uint "$updated"; then
+			now="$(date +%s)"
+			age=$((now - updated))
+			if [ "$age" -ge 0 ] && [ "$age" -le "$WIFI_TEMP_INTERVAL" ]; then
+				printf '%s\n' "$value"
+				return 0
+			fi
+		fi
+	fi
+
+	value="$(read_vendor_radio_temp "$iface" 2>/dev/null || true)"
+	if [ -n "$value" ]; then
+		mkdir -p "${WIFI_TEMP_CACHE%/*}" 2>/dev/null || true
+		printf 'temperature=%s\ninterface=%s\nupdated=%s\n' "$value" "$iface" "$(date +%s)" \
+			> "${cache}.tmp" 2>/dev/null && mv -f "${cache}.tmp" "$cache" 2>/dev/null
+		printf '%s\n' "$value"
+		return 0
+	fi
+
+	if [ -r "$cache" ] && is_uint "${WIFI_TEMP_MAX_AGE:-0}"; then
+		value="$(sed -n 's/^temperature=//p' "$cache" 2>/dev/null | head -n 1)"
+		updated="$(sed -n 's/^updated=//p' "$cache" 2>/dev/null | head -n 1)"
+		if is_uint "$value" && is_uint "$updated"; then
+			now="$(date +%s)"
+			[ $((now - updated)) -le "$WIFI_TEMP_MAX_AGE" ] && { printf '%s\n' "$value"; return 0; }
+		fi
+	fi
+	return 1
+}
+
 read_sensors() {
 	local zone type value hwmon name
 	CPU_TEMP=""; CPU_LABEL=""; PHY_TEMP=""; PHY_LABEL=""
 	WIFI1_TEMP=""; WIFI1_LABEL=""; WIFI2_TEMP=""; WIFI2_LABEL=""
+	WIFI_SOURCE="none"
 	MODULE_SENSOR=""; MODULE_TEMP_VALUE=""
 	# ★ 不能写成 MODULE_TEMP="$(find_module_temp)"：命令替换在子 shell 里跑，
 	#   函数里赋的 MODULE_SENSOR / MODULE_TEMP_VALUE 回不到这里。
@@ -418,7 +484,7 @@ read_sensors() {
 				;;
 			*mt799*|*wifi*|*radio*)
 				if [ -z "$WIFI1_TEMP" ]; then
-					WIFI1_TEMP="$value"; WIFI1_LABEL="$name"
+					WIFI1_TEMP="$value"; WIFI1_LABEL="$name"; WIFI_SOURCE="hwmon"
 				elif [ -z "$WIFI2_TEMP" ]; then
 					WIFI2_TEMP="$value"; WIFI2_LABEL="$name"
 				fi
@@ -429,14 +495,15 @@ read_sensors() {
 		esac
 	done
 
-	# Vendor mt_wifi drivers may expose radio temperature only via iwpriv.
-	# Keep native hwmon readings authoritative; missing/invalid is not zero.
+	# 厂商 mt_wifi 驱动只在 iwpriv 统计里暴露射频温度。原生 hwmon 优先；
+	# 读不到或值非法都保持空串，绝不当成 0℃ 去参与取热。
 	if [ -z "$WIFI1_TEMP" ]; then
-		WIFI1_TEMP="$(read_vendor_radio_temp ra0 2>/dev/null || true)"
-		[ -z "$WIFI1_TEMP" ] || WIFI1_LABEL='MTK radio ra0'
+		WIFI1_TEMP="$(wifi_temp_cached ra0 2>/dev/null || true)"
+		[ -z "$WIFI1_TEMP" ] || { WIFI1_LABEL='MTK radio ra0'; WIFI_SOURCE='vendor'; }
 	fi
 	if [ -z "$WIFI2_TEMP" ]; then
-		WIFI2_TEMP="$(read_vendor_radio_temp rai0 2>/dev/null || true)"
+		WIFI2_TEMP="$(wifi_temp_cached rai0 2>/dev/null || true)"
+		# WIFI_SOURCE 只描述 WIFI1（页面主显的那一路）的来源，不被这一支覆盖。
 		[ -z "$WIFI2_TEMP" ] || WIFI2_LABEL='MTK radio rai0'
 	fi
 
@@ -743,6 +810,8 @@ print_settings() {
 	echo "curve=$PROFILE"
 	echo "curve_data=$CURVE_DATA"
 	echo "temp_source=$TEMP_SOURCE"
+	echo "wifi_temp_source=$WIFI_TEMP_SOURCE"
+	echo "wifi_temp_interval=$WIFI_TEMP_INTERVAL"
 	echo "manual_pwm=$MANUAL_PWM"
 	echo "interval=$INTERVAL"
 	echo "hysteresis=$HYSTERESIS"
@@ -779,6 +848,10 @@ print_status() {
 	echo "phy_temp=$PHY_TEMP"; echo "phy_label=$PHY_LABEL"
 	echo "wifi1_temp=$WIFI1_TEMP"; echo "wifi1_label=$WIFI1_LABEL"
 	echo "wifi2_temp=$WIFI2_TEMP"; echo "wifi2_label=$WIFI2_LABEL"
+	# wifi_source: iwpriv（刚问到）/ cache（节流内的缓存）/ stale（驱动没响应，
+	# 用的旧值）/ hwmon（标准节点）/ none（这台机型读不到）。
+	# wifi_source: hwmon（标准节点）/ vendor（厂商驱动统计）/ none（读不到）
+	echo "wifi_source=$WIFI_SOURCE"
 	echo "module_temp=$MODULE_TEMP"; echo "module_label=5G modem"
 	# 具体是哪一路最热（sub3GPA/sub6GPA/.../bbp2）。module_label 保持 "5G modem"
 	# 不变 —— LuCI 靠它高亮传感器卡片，改名会让高亮失效。

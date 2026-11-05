@@ -25,6 +25,20 @@ if [ "$schema" -lt 2 ]; then
 	uci -q commit h5000m_fancontrol
 fi
 
+# schema 3：WiFi 芯片温度改走私有驱动的 iwpriv 统计（H5000M 的 MT7992 不暴露
+# thermal/hwmon 节点），并给节流加两个选项。这一步只补缺项，不动已有取值。
+schema="$(uci -q get h5000m_fancontrol.settings.schema_version || echo 0)"
+case "$schema" in ''|*[!0-9]*) schema=0 ;; esac
+
+if [ "$schema" -lt 3 ]; then
+	uci -q get h5000m_fancontrol.settings.wifi_temp_source >/dev/null 2>&1 || \
+		uci -q set h5000m_fancontrol.settings.wifi_temp_source='auto'
+	uci -q get h5000m_fancontrol.settings.wifi_temp_interval >/dev/null 2>&1 || \
+		uci -q set h5000m_fancontrol.settings.wifi_temp_interval='30'
+	uci -q set h5000m_fancontrol.settings.schema_version='3'
+	uci -q commit h5000m_fancontrol
+fi
+
 /etc/init.d/h5000m-fancontrol enable >/dev/null 2>&1 || true
 /etc/init.d/h5000m-fancontrol restart >/dev/null 2>&1 || true
 
